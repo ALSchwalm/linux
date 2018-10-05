@@ -194,8 +194,8 @@
  */
 
 
-/* #define VERBOSE_DEBUG */
-/* #define DUMP_MSGS */
+#define VERBOSE_DEBUG
+#define DUMP_MSGS
 
 #include <linux/blkdev.h>
 #include <linux/completion.h>
@@ -1050,6 +1050,171 @@ static int do_verify(struct fsg_common *common)
 
 /*-------------------------------------------------------------------------*/
 
+static int do_read_disc_information(struct fsg_common* common, struct fsg_buffhd * bh)
+{
+    struct fsg_lun *curlun = common->curlun;
+    u8* outbuf = (u8*)bh->buf;
+
+    if (common->cmnd[1] & ~0x02) { /* Mask away MSF */
+        curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
+        return -EINVAL;
+    }
+
+    memset(outbuf,0,34);
+    outbuf[1] = 32;
+    outbuf[2] = 0xe; /* last session complete, disc finalized */
+    outbuf[3] = 1;   /* first track on disc */
+    outbuf[4] = 1;   /* # of sessions */
+    outbuf[5] = 1;   /* first track of last session */
+    outbuf[6] = 1;   /* last track of last session */
+    outbuf[7] = 0x20; /* unrestricted use */
+    outbuf[8] = 0x00; /* CD-ROM or DVD-ROM */
+
+    outbuf[16] = 0xff;
+    outbuf[17] = 0xff;
+    outbuf[18] = 0xff;
+    outbuf[19] = 0xff;
+    outbuf[20] = 0xff;
+    outbuf[21] = 0xff;
+    outbuf[22] = 0xff;
+    outbuf[23] = 0xff;
+    return 34;
+}
+
+static int do_get_configuration(struct fsg_common *common, struct fsg_buffhd *bh)
+{
+    struct fsg_lun *curlun = common->curlun;
+    u8* buf = (u8*)bh->buf;
+    u8* buf0 = buf;
+    int cur, len;
+    int starting = 0;
+
+    starting = get_unaligned_be16(&common->cmnd[2]);
+
+    if ( curlun->num_sectors > CD_MAX_SECTORS )
+    {
+        cur = MMC_PROFILE_DVD_ROM;
+    }
+    else
+    {
+        cur = MMC_PROFILE_CD_ROM;
+    }
+
+    memset(buf,0,256); // arbitrary limit
+    put_unaligned_be16(cur,&buf[6]);
+    buf += 8;
+
+    /* Profile list */
+    if (starting == 0) {
+        buf[2] = 0x03; /* persistent, current */
+        buf[3] = 8; /* two profiles */
+        put_unaligned_be16(MMC_PROFILE_DVD_ROM,&buf[4]);
+        buf[6] = ( cur == MMC_PROFILE_DVD_ROM);
+        put_unaligned_be16(MMC_PROFILE_CD_ROM,&buf[8]);
+        buf[10] = ( cur == MMC_PROFILE_CD_ROM );
+        buf += 12;
+    }
+
+    /* Core feature */
+    if (starting <= 1) {
+        put_unaligned_be16(1,&buf[0]);
+        buf[2] = 0x08 | 0x03; /* version 2, persistent, current */
+        buf[3] = 8;
+        put_unaligned_be32(1,&buf[4]); /* SCSI */
+        buf[8] = 1; /* DBE = 1, mandatory */
+        buf += 12;
+    }
+
+    /* Morphing (8 bytes) */
+    if (starting <= 0x0002) {
+        put_unaligned_be16(0x0002,&buf[0]);
+        buf[2] = 0x07; /* version 1, persistent, current */
+        buf[3] = 4;
+        /* 4 zero additional bytes */
+        buf += 8;
+    }
+
+     /* Removable media feature */
+    if (starting <= 3) {
+        put_unaligned_be16(3,&buf[0]);
+        buf[2] = 0x08 | 0x3; /* version 2, persistent, current */
+        buf[3] = 4;
+        buf[4] = 0x39; /* tray, load=1, eject=1, unlocked at powerup, lock=1 */
+        buf += 8;
+    }
+
+    /* Random Readable (12 bytes) */
+    if (starting <= 0x0010) {
+        put_unaligned_be16(0x0010,&buf[0]);
+        buf[2] = 0x00 | 0x03; /* version 0 */
+        buf[3] = 8;
+        buf[6] = 0x08;
+        buf[10] = 0x01;
+        buf += 12;
+    }
+
+    /* Multiread (4 bytes) */
+    if (starting <= 0x001d) {
+        put_unaligned_be16(0x001d,&buf[0]);
+        buf[2] = 0x01 | 0x03; /* version 1 */
+        buf[3] = 0;
+        buf += 4;
+    }
+
+    /* CD Read (8 bytes) */
+    if (starting <= 0x001e) {
+        put_unaligned_be16(0x001e,&buf[0]);
+        buf[2] = 0x02 | 0x03; /* version 1 */
+        buf[3] = 4;
+        buf[4] = 0x3;
+        buf += 8;
+    }
+
+    /* DVD Read (8 bytes) */
+    if (starting <= 0x001f) {
+        put_unaligned_be16(0x001f,&buf[0]);
+        buf[2] = 0x04 | 0x03; /* version 1 */
+        buf[3] = 4;
+        buf[4] = 0x01;
+        buf[5] = 0x00;
+        buf[6] = 0x01;
+        buf[7] = 0x00;
+        buf += 8;
+    }
+
+    /* Power Management (4 bytes) */
+    if (starting <= 0x0100) {
+        put_unaligned_be16(0x0100,&buf[0]);
+        buf[2] = 0x03; /* version 0; persistent, current */
+        buf[3] = 0;
+        buf += 4;
+    }
+
+    /* Timeout (8 bytes) */
+    if (starting <= 0x0105) {
+        put_unaligned_be16(0x0105,&buf[0]);
+        buf[2] = 0x07; /* version 1; persistent, current */
+        buf[3] = 4;
+        /* 4 zero additional bytes */
+        buf += 8;
+    }
+
+    /* Real Time Streaming (8 bytes) */
+    if (starting <= 0x0107) {
+        put_unaligned_be16(0x0107,&buf[0]);
+        buf[2] = 0x10 | 0x03; /* version 4 */
+        buf[3] = 4;
+        buf[4] = 0x0f;
+        /* 3 zero additional bytes */
+        buf += 8;
+    }
+
+    len = buf - buf0;
+    put_unaligned_be32(len - 4, &buf0[0]); /* Bytes after the data length field */
+
+    return len;
+}
+
 static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	struct fsg_lun *curlun = common->curlun;
@@ -1187,18 +1352,30 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 		return -EINVAL;
 	}
 
-	memset(buf, 0, 20);
-	buf[1] = (20-2);		/* TOC data length */
-	buf[2] = 1;			/* First track number */
-	buf[3] = 1;			/* Last track number */
-	buf[5] = 0x16;			/* Data track, copying allowed */
-	buf[6] = 0x01;			/* Only track is number 1 */
-	store_cdrom_address(&buf[8], msf, 0);
+        if (common->cmnd[2] == 0x01)  {
+            memset(buf, 0, 12);
+            buf[1] = (12-2);
+            buf[2] = 1; /* First complete session number */
+            buf[3] = 1; /* Last complete session number */
+            buf[4] = 0; /* reserved */
+            buf[5] = 0x17;
+            buf[6] = 1; /* First track number in last complete session */
+            buf[7] = 0; /* reserved */
+            return 12;
+        } else {
+            memset(buf, 0, 20);
+            buf[1] = (20-2);		/* TOC data length */
+            buf[2] = 1;			/* First track number */
+            buf[3] = 1;			/* Last track number */
+            buf[5] = 0x16;			/* Data track, copying allowed */
+            buf[6] = 0x01;			/* Only track is number 1 */
+            store_cdrom_address(&buf[8], msf, 0);
 
-	buf[13] = 0x16;			/* Lead-out track is data */
-	buf[14] = 0xAA;			/* Lead-out track number */
-	store_cdrom_address(&buf[16], msf, curlun->num_sectors);
-	return 20;
+            buf[13] = 0x16;			/* Lead-out track is data */
+            buf[14] = 0xAA;			/* Lead-out track number */
+            store_cdrom_address(&buf[16], msf, curlun->num_sectors);
+            return 20;
+        }
 }
 
 static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
@@ -1211,6 +1388,13 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 	int		changeable_values, all_pages;
 	int		valid_page = 0;
 	int		len, limit;
+        u8 capabilities[] =
+            "\x3f\x00\xf1\x77\x29\x23\x2b\x48\x01\x00\x06\x00\x2b\x48" \
+            "\x00\x10\x2b\x48\x2b\x48\x00\x01\x00\x00\x00\x00\x2b\x48\x00\x09" \
+            "\x00\x00\x2b\x48\x00\x00\x20\x76\x00\x00\x15\xa4\x00\x00\x10\x3b" \
+            "\x00\x00\x10\x3b\x00\x00\x10\x3b\x00\x00\x10\x3b\x00\x00\x10\x3b" \
+            "\x00\x00\x10\x3b";
+
 
 	if ((common->cmnd[1] & ~0x08) != 0) {	/* Mask away DBD */
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
@@ -1268,12 +1452,21 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 		}
 		buf += 12;
 	}
+        if (page_code == 0x2a || all_pages) { // Capabilities page
+            valid_page = 1;
+            buf[0] = 0x2a;
+            buf[1] = sizeof(capabilities) - 1;
+            memcpy(buf+2, capabilities, sizeof(capabilities)-1);
+            buf += sizeof(capabilities) - 1 + 2;
+        }
 
 	/*
 	 * Check that a valid page was requested and the mode data length
 	 * isn't too long.
 	 */
 	len = buf - buf0;
+
+        printk("valid_page=%d, len=%d, limit=%d, page_code=%d\n", valid_page, len, limit, page_code);
 	if (!valid_page || len > limit) {
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 		return -EINVAL;
@@ -1809,6 +2002,31 @@ static int do_scsi_command(struct fsg_common *common)
 	down_read(&common->filesem);	/* We're using the backing file */
 	switch (common->cmnd[0]) {
 
+        case 0x51: //READ_DISC_INFORMATION
+            common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[7]);
+            if (!common->curlun || !common->curlun->cdrom) {
+                goto unknown_cmnd;
+            }
+            reply = check_command(common, 10, DATA_DIR_TO_HOST,
+                                  0xffffffff, 1,
+                                  "READ DISK INFORMATION");
+            if (reply == 0) {
+                reply = do_read_disc_information(common, bh);
+            }
+            break;
+        case 0x46: //GET_CONFIGURATION
+            common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[7]);
+            if (!common->curlun || !common->curlun->cdrom) {
+                goto unknown_cmnd;
+            }
+            reply = check_command(common, 10, DATA_DIR_TO_HOST,
+                                  0xffffffff, 1,
+                                  "GET CONFIGURATION");
+            if (reply == 0) {
+                reply = do_get_configuration(common, bh);
+            }
+            break;
+
 	case INQUIRY:
 		common->data_size_from_cmnd = common->cmnd[4];
 		reply = check_command(common, 6, DATA_DIR_TO_HOST,
@@ -1925,7 +2143,7 @@ static int do_scsi_command(struct fsg_common *common)
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
-				      (7<<6) | (1<<1), 1,
+				      0xffffffff, 1,
 				      "READ TOC");
 		if (reply == 0)
 			reply = do_read_toc(common, bh);

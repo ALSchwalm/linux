@@ -85,6 +85,42 @@ do {									\
 #define SS_WRITE_ERROR				0x030c02
 #define SS_WRITE_PROTECTED			0x072700
 
+#define CD_MINS                       80 /* max. minutes per CD */
+#define CD_SECS                       60 /* seconds per minute */
+#define CD_FRAMES                     75 /* frames per second */
+#define CD_FRAMESIZE                2048 /* bytes per frame, “cooked” mode */
+#define CD_MAX_BYTES       (CD_MINS * CD_SECS * CD_FRAMES * CD_FRAMESIZE)
+#define CD_MAX_SECTORS     (CD_MAX_BYTES / 512)
+
+#define MMC_PROFILE_NONE                0x0000
+#define MMC_PROFILE_CD_ROM              0x0008
+#define MMC_PROFILE_CD_R                0x0009
+#define MMC_PROFILE_CD_RW               0x000A
+#define MMC_PROFILE_DVD_ROM             0x0010
+#define MMC_PROFILE_DVD_R_SR            0x0011
+#define MMC_PROFILE_DVD_RAM             0x0012
+#define MMC_PROFILE_DVD_RW_RO           0x0013
+#define MMC_PROFILE_DVD_RW_SR           0x0014
+#define MMC_PROFILE_DVD_R_DL_SR         0x0015
+#define MMC_PROFILE_DVD_R_DL_JR         0x0016
+#define MMC_PROFILE_DVD_RW_DL           0x0017
+#define MMC_PROFILE_DVD_DDR             0x0018
+#define MMC_PROFILE_DVD_PLUS_RW         0x001A
+#define MMC_PROFILE_DVD_PLUS_R          0x001B
+#define MMC_PROFILE_DVD_PLUS_RW_DL      0x002A
+#define MMC_PROFILE_DVD_PLUS_R_DL       0x002B
+#define MMC_PROFILE_BD_ROM              0x0040
+#define MMC_PROFILE_BD_R_SRM            0x0041
+#define MMC_PROFILE_BD_R_RRM            0x0042
+#define MMC_PROFILE_BD_RE               0x0043
+#define MMC_PROFILE_HDDVD_ROM           0x0050
+#define MMC_PROFILE_HDDVD_R             0x0051
+#define MMC_PROFILE_HDDVD_RAM           0x0052
+#define MMC_PROFILE_HDDVD_RW            0x0053
+#define MMC_PROFILE_HDDVD_R_DL          0x0058
+#define MMC_PROFILE_HDDVD_RW_DL         0x005A
+#define MMC_PROFILE_INVALID             0xFFFF
+
 #define SK(x)		((u8) ((x) >> 16))	/* Sense Key byte, etc. */
 #define ASC(x)		((u8) ((x) >> 8))
 #define ASCQ(x)		((u8) (x))
