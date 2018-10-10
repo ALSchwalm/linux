@@ -193,9 +193,8 @@
  * of the Gadget, USB Mass Storage, and SCSI protocols.
  */
 
-
-#define VERBOSE_DEBUG
-#define DUMP_MSGS
+/* #define VERBOSE_DEBUG */
+/* #define DUMP_MSGS */
 
 #include <linux/blkdev.h>
 #include <linux/completion.h>
@@ -1050,6 +1049,31 @@ static int do_verify(struct fsg_common *common)
 
 /*-------------------------------------------------------------------------*/
 
+static int do_read_track_information(struct fsg_common* common, struct fsg_buffhd * bh)
+{
+    struct fsg_lun *curlun = common->curlun;
+    u8* outbuf = (u8*)bh->buf;
+    u32 track = get_unaligned_be32(&common->cmnd[2]);
+
+    // Only support T_CBD
+    if ((common->cmnd[1] & 0x03) != 1 || track != 1) {
+        curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
+        return -EINVAL;
+    }
+
+    memset(outbuf,0,36);
+    put_unaligned_be16(36,&outbuf[0]);
+    outbuf[2] = 1; /* Track 1 */
+    outbuf[3] = 1; /* Session 1 */
+
+    outbuf[5] = 0x6; /* Data track, copying allowed */
+    outbuf[6] = 0x01; /* Data mode 1 */
+
+    put_unaligned_be32(curlun->num_sectors, &outbuf[24]);
+
+    return 36;
+}
+
 static int do_read_disc_information(struct fsg_common* common, struct fsg_buffhd * bh)
 {
     struct fsg_lun *curlun = common->curlun;
@@ -1466,7 +1490,6 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 	 */
 	len = buf - buf0;
 
-        printk("valid_page=%d, len=%d, limit=%d, page_code=%d\n", valid_page, len, limit, page_code);
 	if (!valid_page || len > limit) {
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 		return -EINVAL;
@@ -2001,7 +2024,18 @@ static int do_scsi_command(struct fsg_common *common)
 
 	down_read(&common->filesem);	/* We're using the backing file */
 	switch (common->cmnd[0]) {
-
+        case 0x52: //READ_TRACK_INFORMATION
+            common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[7]);
+            if (!common->curlun || !common->curlun->cdrom) {
+                goto unknown_cmnd;
+            }
+            reply = check_command(common, 10, DATA_DIR_TO_HOST,
+                                  0xffffffff, 1,
+                                  "READ TRACK INFORMATION");
+            if (reply == 0) {
+                reply = do_read_track_information(common, bh);
+            }
+            break;
         case 0x51: //READ_DISC_INFORMATION
             common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[7]);
             if (!common->curlun || !common->curlun->cdrom) {
