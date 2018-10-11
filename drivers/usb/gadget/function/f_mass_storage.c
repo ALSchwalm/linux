@@ -2024,6 +2024,16 @@ static int do_scsi_command(struct fsg_common *common)
 
 	down_read(&common->filesem);	/* We're using the backing file */
 	switch (common->cmnd[0]) {
+
+        case 0xbb: //SET_CD_SPEED
+            common->data_size_from_cmnd = 0;
+            if (!common->curlun || !common->curlun->cdrom) {
+                goto unknown_cmnd;
+            }
+            reply = check_command(common, 12, DATA_DIR_NONE,
+                                  0xffffffff, 1,
+                                  "SET CD SPEED");
+            break;
         case 0x52: //READ_TRACK_INFORMATION
             common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[7]);
             if (!common->curlun || !common->curlun->cdrom) {
