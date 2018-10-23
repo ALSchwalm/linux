@@ -1074,6 +1074,31 @@ static int do_read_track_information(struct fsg_common* common, struct fsg_buffh
     return 36;
 }
 
+static int do_read_disc_structure(struct fsg_common* common, struct fsg_buffhd * bh)
+{
+    struct fsg_lun *curlun = common->curlun;
+    // There are two reserved bytes that are not part of the 'Layer Descriptor'
+    u8* outbuf = (u8*)bh->buf + 2;
+
+    // We only support physical format info
+    if (common->cmnd[7] != 0x00) {
+        curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
+        return -EINVAL;
+    }
+
+    outbuf[0] = 0x01; // DVD-ROM version 1
+    outbuf[1] = 0x0f; // No transfer limit
+    outbuf[2] = 0x01; // Read-only
+    outbuf[3] = 0x00;
+    outbuf[4] = 0x00;
+
+    // Starting sector of main data is always 0x30000 for DVD-ROM
+    put_unaligned_be32(0x03000000, &outbuf[5]);
+    put_unaligned_be32(0x03000000 + curlun->num_sectors, &outbuf[9]);
+
+    return 2050;
+}
+
 static int do_read_disc_information(struct fsg_common* common, struct fsg_buffhd * bh)
 {
     struct fsg_lun *curlun = common->curlun;
@@ -2034,8 +2059,19 @@ static int do_scsi_command(struct fsg_common *common)
 
 	down_read(&common->filesem);	/* We're using the backing file */
 	switch (common->cmnd[0]) {
-
-        case 0xbb: //SET_CD_SPEED
+        case 0xad: // READ_DISK_STRUCTURE
+            common->data_size_from_cmnd = get_unaligned_be16(&common->cmnd[8]);
+            if (!common->curlun || !common->curlun->cdrom) {
+                goto unknown_cmnd;
+            }
+            reply = check_command(common, 12, DATA_DIR_TO_HOST,
+                                  0xffffffff, 1,
+                                  "READ DISK STRUCTURE");
+            if (reply == 0) {
+                reply = do_read_disc_structure(common, bh);
+            }
+            break;
+        case 0xbb: // SET_CD_SPEED
             common->data_size_from_cmnd = 0;
             if (!common->curlun || !common->curlun->cdrom) {
                 goto unknown_cmnd;
