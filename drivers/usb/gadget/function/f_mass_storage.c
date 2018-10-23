@@ -1483,6 +1483,16 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
             memcpy(buf+2, capabilities, sizeof(capabilities)-1);
             buf += sizeof(capabilities) - 1 + 2;
         }
+        if (page_code == 0x1a || all_pages) { // Power Condition
+            valid_page = 1;
+            buf[0] = 0x1a;
+            buf[1] = 10;
+
+            // Disable the standby and idle timers
+            memset(buf+2, 0, 10);
+
+            buf += 12;
+        }
 
 	/*
 	 * Check that a valid page was requested and the mode data length
